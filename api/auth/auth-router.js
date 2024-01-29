@@ -1,47 +1,92 @@
 const router = require('express').Router();
-const middleware = require('./middleware');
-const helper = require('./helper');
-const model = require('./model');
+const bcrypt = require('bcryptjs');
+const { add } = require('./auth-model')
+const { checkCredentials, checkUserExists } = require('../middleware/checkUser')
+const { tokenBuilder } = require('../middleware/tokenBuilder')
 
+router.post('/register', checkCredentials, (req, res) => {
+  
+  /*
+    IMPLEMENT
+    You are welcome to build additional middlewares to help with the endpoint's functionality.
+    DO NOT EXCEED 2^8 ROUNDS OF HASHING!
 
-router.post('/register', middleware.validateBody, async (req, res) => {
-  const hashedPassword = await helper.hashPassword(req.body.password);
-  try {
-    const insertedUser = await model.insert({
-      username: req.body.username,
-      password: hashedPassword
+    1- In order to register a new account the client must provide `username` and `password`:
+      {
+        "username": "Captain Marvel", // must not exist already in the `users` table
+        "password": "foobar"          // needs to be hashed before it's saved
+      }
+
+    2- On SUCCESSFUL registration,
+      the response body should have `id`, `username` and `password`:
+      {
+        "id": 1,
+        "username": "Captain Marvel",
+        "password": "2a$08$jG.wIGR2S4hxuyWNcBf9MuoC4y0dNy7qC/LbmtuFBSdIhWks2LhpG"
+      }
+
+    3- On FAILED registration due to `username` or `password` missing from the request body,
+      the response body should include a string exactly as follows: "username and password required".
+
+    4- On FAILED registration due to the `username` being taken,
+      the response body should include a string exactly as follows: "username taken".
+  */
+      const credentials = req.body;
+      const hash = bcrypt.hashSync(credentials.password, 8)
+      credentials.password = hash
+    
+      add(credentials)
+        .then((user) => {
+          res.status(201).json(user)
+        })
+        .catch((err) => {
+          res.status(400).json({
+            message: 'username and password required',
+            error: err.message
+          })
+        })
+});
+
+router.post('/login',  checkUserExists, (req, res) => {
+  
+  /*
+    IMPLEMENT
+    You are welcome to build additional middlewares to help with the endpoint's functionality.
+
+    1- In order to log into an existing account the client must provide `username` and `password`:
+      {
+        "username": "Captain Marvel",
+        "password": "foobar"
+      }
+
+    2- On SUCCESSFUL login,
+      the response body should have `message` and `token`:
+      {
+        "message": "welcome, Captain Marvel",
+        "token": "eyJhbGciOiJIUzI ... ETC ... vUPjZYDSa46Nwz8"
+      }
+
+    3- On FAILED login due to `username` or `password` missing from the request body,
+      the response body should include a string exactly as follows: "username and password required".
+
+    4- On FAILED login due to `username` not existing in the db, or `password` being incorrect,
+      the response body should include a string exactly as follows: "invalid credentials".
+  */
+      const user = req.body.user;
+      const { username, password } = req.body;
+    
+      if (user && bcrypt.compareSync(password, user.password)) {
+        const token = tokenBuilder(user);
+        res.status(200).json({
+          message: `welcome, ${username} `,
+          token: token,
+        });
+      } else {
+        res.status(401).json({
+          message: "invalid credentials",
+        });
+      }
     });
-    return res.send(insertedUser);
-  } catch (err) {
-    if (err.code === 'SQLITE_CONSTRAINT') {
-      return res.status(400).send('username taken');
-    }
-    return res.sendStatus(400);
-  }
-});
-
-router.post('/login', middleware.validateBody, async (req, res) => {
-  const dbUser = await model.getByUsername(req.body.username);
-
-  if (!dbUser) {
-    return res.status(401).send('invalid credentials');
-  }
-
-  const isPasswordValid = await helper.isPasswordValid(req.body.password, dbUser.password);
-
-  if (!isPasswordValid) {
-    return res.status(401).send('invalid credentials');
-  }
-
-  const jwt = await helper.makeJwt({
-    username: dbUser.username,
-    id: dbUser.id
-  });
-
-  return res.send({
-    message: `welcome, ${dbUser.username}`,
-    token: jwt
-  });
-});
+      
 
 module.exports = router;

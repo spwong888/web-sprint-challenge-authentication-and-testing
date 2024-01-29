@@ -1,75 +1,106 @@
 const request = require('supertest')
-const server = require('../api/server')
 const db = require('../data/dbConfig')
+const server = require('./server')
 
-const dbUserA = { username: 'user1', password: '$2a$08$0Oy2My7wUA9iEpKiNZ52nuwzFN0pj8B6VX61pJIEaYw0tE5OmQ2Da' }
-const apiUserA = { username: 'user1', password: 'hello' }
+const user = {
+  username: "Captain Marvel",
+  password: "foobar"
+};
 
-afterAll(async () => {
-  await db.destroy()
-})
-beforeEach(async () => {
+beforeAll(async () => {
   await db.migrate.rollback()
   await db.migrate.latest()
 })
 
-
-describe('register', () => {
-//test register
-  test('can register', async () => {
-    const res = await request(server).post('/api/auth/register').send(apiUserA);
-    expect(res.body.id).toEqual(1)
-  })
-
-  test('cant register, missing username', async () => {
-    const res = await request(server).post('/api/auth/register').send({
-      password: 'fake'
-    });
-    expect(res.status).toEqual(400)
-  })
-});
-
-describe('login', ()=>{
-  beforeEach(async () => {
-    await db('users').insert(dbUserA)
-  })
-
-  test('can login', async () => {
-    const res = await request(server).post('/api/auth/login').send(apiUserA);
-    expect(res.body.token).not.toBeNull();
-  })
-
-  test('fail login, missing password', async () => {
-    const res = await request(server).post('/api/auth/login').send({username: 'user1'});
-    expect(res.statusCode).toEqual(400)
-  })
-
-  test('fail login, invalid password', async () => {
-    const res = await request(server).post('/api/auth/login').send({username: 'user1', password: 'asdfasdf'});
-    expect(res.statusCode).toEqual(401)
-  })
+beforeEach(async () => {
+  await db('users').truncate()
 })
 
-describe('jokes', () => {
-
-  beforeEach(async () => {
-    await db('users').insert(dbUserA)
-  })
-
-  test('can get jokes', async () => {
-    const res = await request(server).post('/api/auth/login').send(apiUserA);
-    const jokesRes = await request(server).get('/api/jokes').set('Authorization', res.body.token);
-    expect(jokesRes.body).not.toBeNull();
-    expect(jokesRes.body.length).toBeTruthy();
-  })
-
-  test('cant get jokes, missing token', async () => {
-    const jokesRes = await request(server).get('/api/jokes');
-    expect(jokesRes.statusCode).toEqual(401)
-  })
-});
+afterAll(async () => {
+  await db.destroy()
+})
 
 
 test('sanity', () => {
   expect(true).toBe(true)
+})
+
+
+describe('Test endpoints', () => {
+  describe("[POST] /api/auth/register", () => {
+    test("user can register", async () => {
+      let res;
+      res = await request(server).post("/api/auth/register").send(user);
+      expect(res.status).toBe(201);
+    });
+    it("adds the user to the database", async () => {
+      let res;
+      await request(server).post("/api/auth/register").send(user);
+      res = await db('users')
+        .where({ id: 1 })
+        .first();
+      expect(res.username).toBe(user.username);
+    });
+    it("rejects username if taken", async () => {
+      let res;
+      await request(server).post("/api/auth/register").send(user);
+
+      res = await request(server).post("/api/auth/register").send(user);
+      expect(res.status).toBe(401);
+      expect(res.text).toMatch(/.*username taken.*/);
+    });
+    it("requires username and password", async () => {
+      let res;
+      res = await request(server)
+        .post("/api/auth/register")
+        .send({password: "foobar"});
+      expect(res.text).toMatch(/.*username and password required.*/);
+
+      res = await request(server)
+        .post("/api/auth/register")
+        .send({username: "Captain Marvel"});
+      expect(res.text).toMatch(/.*username and password required.*/);
+    });
+  describe("[POST] /api/auth/login", () => {
+    it("requires username and password", async () => {
+      let res;
+      res = await request(server)
+        .post("/api/auth/login")
+        .send({password: "foobar"});
+      expect(res.text).toMatch(/.*username and password required.*/);
+
+      res = await request(server)
+        .post("/api/auth/login")
+        .send({username: "Captain Marvel"});
+      expect(res.text).toMatch(/.*username and password required.*/);
+    });
+    it("checks if username exists", async () => {
+      let res;
+      res = await request(server)
+        .post("/api/auth/login")
+        .send(user);
+        expect(res.text).toMatch(/.*invalid credentials.*/);
+    })
+    it("checks if password is correct", async () => {
+      let res;
+      await request(server)
+        .post("/api/auth/register")
+        .send(user);
+      res = await request(server)
+        .post("/api/auth/login")
+        .send({...user, password: "bad_password"});
+        expect(res.text).toMatch(/.*invalid credentials.*/);
+    });
+    it("logs in with valid credentials", async () => {
+      let res;
+      await request(server)
+        .post("/api/auth/register")
+        .send(user);
+      res = await request(server)
+        .post("/api/auth/login")
+        .send(user);
+      expect(res.text).toMatch(/.*welcome.*token.*/);
+    });
+  });
+  })
 })
