@@ -1,14 +1,16 @@
-module.exports = (req, res, next) => {
+const helper = require('../auth/helper');
+
+module.exports = async (req, res, next) => {
+
+  const authToken = req.headers.authorization;
+  if (!authToken) {
+    return res.status(401).send('token required')
+  }
+
+  try {
+    await helper.verifyJwt(authToken);
+  } catch (err) {
+    return res.status(401).send('token invalid')
+  }
   next();
-  /*
-    IMPLEMENT
-
-    1- On valid token in the Authorization header, call next.
-
-    2- On missing token in the Authorization header,
-      the response body should include a string exactly as follows: "token required".
-
-    3- On invalid or expired token in the Authorization header,
-      the response body should include a string exactly as follows: "token invalid".
-  */
 };
